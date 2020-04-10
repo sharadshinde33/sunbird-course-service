@@ -251,6 +251,8 @@ public class BaseController extends Controller {
           ((Map) (request.getRequest().get(JsonKey.FILTERS)))
               .put(JsonKey.OBJECT_TYPE, esObjectTypeList);
         }
+        System.out.println("Flash - UserID: " + httpRequest.flash().get(JsonKey.USER_ID));
+        System.out.println("Flash - Data: " + httpRequest.flash());
         request.getRequest().put(JsonKey.REQUESTED_BY, httpRequest.flash().get(JsonKey.USER_ID));
       }
       return actorResponseHandler(actorRef, request, timeout, null, httpRequest);
