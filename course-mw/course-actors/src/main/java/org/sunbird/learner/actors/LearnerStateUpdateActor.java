@@ -9,6 +9,8 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.sunbird.actor.base.BaseActor;
+import org.sunbird.cache.CacheFactory;
+import org.sunbird.cache.interfaces.Cache;
 import org.sunbird.cassandra.CassandraOperation;
 import org.sunbird.common.ElasticSearchHelper;
 import org.sunbird.common.exception.ProjectCommonException;
@@ -83,64 +85,29 @@ public class LearnerStateUpdateActor extends BaseActor {
     Map<String, List<Map<String, Object>>> batchContentList = contentList.stream()
             .filter(x -> StringUtils.isNotBlank((String) x.get("batchId")))
             .collect(Collectors.groupingBy(x -> (String) x.get("batchId")));
+
     List<String> batchIds = batchContentList.keySet().stream().collect(Collectors.toList());
-    Map<String, List<Map<String, Object>>> batches =
-            getBatches(batchIds).stream().collect(Collectors.groupingBy(x -> (String) x.get("batchId")));
+    Map<String, Integer> batchStatusMap = getBatchesStatus(batchIds);
     Map<String, Object> respMessages = new HashMap<>();
     for (Map.Entry<String, List<Map<String, Object>>> input : batchContentList.entrySet()) {
       String batchId = input.getKey();
-      if (batches.containsKey(batchId)) {
-        Map<String, Object> batchDetails = batches.get(batchId).get(0);
-        String courseId = (String) batchDetails.get("courseId");
-        int status = getInteger(batchDetails.get("status"), 0);
-        if (status == 1) {
-          List<String> contentIds =
-                  input
-                          .getValue()
-                          .stream()
-                          .map(c -> (String) c.get("contentId"))
-                          .collect(Collectors.toList());
-          Map<String, Map<String, Object>> existingContents =
-                  getContents(userId, contentIds, batchId)
-                          .stream()
-                          .collect(
-                                  Collectors.groupingBy(
-                                          x -> {
-                                            return (String) x.get("contentId");
-                                          }))
-                          .entrySet()
-                          .stream()
-                          .collect(Collectors.toMap(e -> e.getKey(), e -> e.getValue().get(0)));
-          List<Map<String, Object>> contents =
-                  input
-                          .getValue()
-                          .stream()
-                          .map(
-                                  inputContent -> {
-                                    Map<String, Object> existingContent =
-                                            existingContents.get(inputContent.get("contentId"));
-                                    return processContent(inputContent, existingContent, userId);
-                                  })
-                          .collect(Collectors.toList());
-
-          cassandraOperation.batchInsert(
-                  consumptionDBInfo.getKeySpace(), consumptionDBInfo.getTableName(), contents);
-          Map<String, Object> updatedBatch = getBatchCurrentStatus(batchId, userId, contents);
-          cassandraOperation.upsertRecord(
-                  userCourseDBInfo.getKeySpace(), userCourseDBInfo.getTableName(), updatedBatch);
-          // Generate Instruction event. Send userId, batchId, courseId, contents.
-          pushInstructionEvent(userId, batchId, courseId, contents);
-          contentIds.forEach(
-                  contentId -> {
-                    updateMessages(respMessages, contentId, JsonKey.SUCCESS);
-                  });
-        } else {
-          updateMessages(
-                  respMessages, ContentUpdateResponseKeys.NOT_A_ON_GOING_BATCH.name(), batchId);
-        }
+      if (batchStatusMap.getOrDefault(batchId, 0) == 1) {
+        String courseId = (String) input.getValue().get(0).get("batchId");
+        List<Map<String, Object>> contents = input.getValue().stream()
+                .map(inputContent -> processContent(inputContent, userId))
+                .collect(Collectors.toList());
+        cassandraOperation.batchInsert(consumptionDBInfo.getKeySpace(), consumptionDBInfo.getTableName(), contents);
+        Map<String, Object> updatedBatch = getBatchCurrentStatus(batchId, userId, contents);
+        cassandraOperation.upsertRecord(userCourseDBInfo.getKeySpace(), userCourseDBInfo.getTableName(), updatedBatch);
+        // Generate Instruction event. Send userId, batchId, courseId, contents.
+        pushInstructionEvent(userId, batchId, courseId, contents);
+        contents.stream().map(c -> {
+          String contentId = (String) c.get("contentId");
+          updateMessages(respMessages, contentId, JsonKey.SUCCESS);
+          return contentId;
+        }).collect(Collectors.toList());
       } else {
-        updateMessages(
-                respMessages, ContentUpdateResponseKeys.BATCH_NOT_EXISTS.name(), batchId);
+        updateMessages(respMessages, ContentUpdateResponseKeys.NOT_A_ON_GOING_BATCH.name(), batchId);
       }
     }
     Response response = new Response();
@@ -149,55 +116,39 @@ public class LearnerStateUpdateActor extends BaseActor {
   }
 
   private void assessmentsUpdate(List<Map<String, Object>> assessments) {
-    Map<String, List<Map<String, Object>>> batchAssessmentList =
-            assessments
-                    .stream()
+    Map<String, List<Map<String, Object>>> batchAssessmentList = assessments.stream()
                     .filter(x -> StringUtils.isNotBlank((String) x.get("batchId")))
-                    .collect(
-                            Collectors.groupingBy(
-                                    x -> {
-                                      return (String) x.get("batchId");
-                                    }));
+                    .collect(Collectors.groupingBy(x -> (String) x.get("batchId")));
     List<String> batchIds = batchAssessmentList.keySet().stream().collect(Collectors.toList());
-    Map<String, List<Map<String, Object>>> batches =
-            getBatches(batchIds)
-                    .stream()
-                    .collect(
-                            Collectors.groupingBy(
-                                    x -> {
-                                      return (String) x.get("batchId");
-                                    }));
+    Map<String, Integer> batchStatusMap = getBatchesStatus(batchIds);
     Map<String, Object> respMessages = new HashMap<>();
+
     for (Map.Entry<String, List<Map<String, Object>>> input : batchAssessmentList.entrySet()) {
       String batchId = input.getKey();
-      if (batches.containsKey(batchId)) {
-        Map<String, Object> batchDetails = batches.get(batchId).get(0);
-        int status = getInteger(batchDetails.get("status"), 0);
-        if (status == 1) {
-          input
-                  .getValue()
-                  .stream()
-                  .forEach(
-                          data -> {
-                            try {
-                              syncAssessmentData(data);
-                              updateMessages(respMessages, batchId, JsonKey.SUCCESS);
-                            } catch (Exception e) {
-                              ProjectLogger.log("Error syncing assessment data: " + e.getMessage(), e);
-                            }
-                          });
-        } else {
-          updateMessages(
-                  respMessages, ContentUpdateResponseKeys.NOT_A_ON_GOING_BATCH.name(), batchId);
-        }
+      if (batchStatusMap.getOrDefault(batchId, 0) == 1) {
+        input.getValue().stream().forEach(data -> {
+                          try {
+                            syncAssessmentData(data);
+                            updateMessages(respMessages, batchId, JsonKey.SUCCESS);
+                          } catch (Exception e) {
+                            ProjectLogger.log("Error syncing assessment data: " + e.getMessage(), e);
+                          }
+                        });
       } else {
-        updateMessages(
-                respMessages, ContentUpdateResponseKeys.BATCH_NOT_EXISTS.name(), batchId);
+        updateMessages(respMessages, ContentUpdateResponseKeys.NOT_A_ON_GOING_BATCH.name(), batchId);
       }
     }
     Response response = new Response();
     response.getResult().putAll(respMessages);
     sender().tell(response, self());
+  }
+
+  private Map<String, Integer> getBatchesStatus(List<String> batchIds) {
+    // TODO: enable redis cache.
+    return getBatches(batchIds).stream()
+            .collect(Collectors.toMap(
+                    batch -> (String) batch.get("batchId"),
+                    batch -> ((Number) batch.getOrDefault("status", 0)).intValue()));
   }
 
   private List<Map<String, Object>> getBatches(List<String> batchIds) {
@@ -237,53 +188,21 @@ public class LearnerStateUpdateActor extends BaseActor {
     return resultList;
   }
 
-  private Map<String, Object> processContent(
-      Map<String, Object> inputContent, Map<String, Object> existingContent, String userId) {
+  private Map<String, Object> processContent(Map<String, Object> inputContent, String userId) {
     int inputStatus = getInteger(inputContent.get("status"), 0);
-    Date inputCompletedDate =
-        parseDate(inputContent.get(JsonKey.LAST_COMPLETED_TIME), simpleDateFormat);
-    Date inputAccessTime = parseDate(inputContent.get(JsonKey.LAST_ACCESS_TIME), simpleDateFormat);
-    if (MapUtils.isNotEmpty(existingContent)) {
-      int viewCount = getInteger(existingContent.get(JsonKey.VIEW_COUNT), 0);
-      inputContent.put(JsonKey.VIEW_COUNT, viewCount + 1);
-
-      Date accessTime = parseDate(existingContent.get(JsonKey.LAST_ACCESS_TIME), simpleDateFormat);
-      inputContent.put(JsonKey.LAST_ACCESS_TIME, compareTime(accessTime, inputAccessTime));
-
-      int inputProgress = getInteger(inputContent.get(JsonKey.PROGRESS), 0);
-      int existingProgress = getInteger(existingContent.get(JsonKey.PROGRESS), 0);
-      int progress = Collections.max(Arrays.asList(inputProgress, existingProgress));
-      inputContent.put(JsonKey.PROGRESS, progress);
-      Date completedDate =
-          parseDate(existingContent.get(JsonKey.LAST_COMPLETED_TIME), simpleDateFormat);
-
-      int completedCount = getInteger(existingContent.get(JsonKey.COMPLETED_COUNT), 0);
-      int existingStatus = getInteger(existingContent.get(JsonKey.STATUS), 0);
-      if (inputStatus >= existingStatus) {
-        if (inputStatus >= 2) {
-          completedCount = completedCount + 1;
-          inputContent.put(JsonKey.PROGRESS, 100);
-          inputContent.put(
-              JsonKey.LAST_COMPLETED_TIME, compareTime(completedDate, inputCompletedDate));
-          inputContent.put(JsonKey.STATUS, 2);
-        }
-        inputContent.put(JsonKey.COMPLETED_COUNT, completedCount);
-      } else {
-        inputContent.put(JsonKey.STATUS, existingStatus);
-      }
+    if (inputStatus >= 2) {
+      inputContent.put(JsonKey.PROGRESS, 100);
+      Date inputCompletedDate = parseDate(inputContent.get(JsonKey.LAST_COMPLETED_TIME), simpleDateFormat);
+      inputContent.put(JsonKey.LAST_COMPLETED_TIME, compareTime(null, inputCompletedDate));
     } else {
-      if (inputStatus >= 2) {
-        inputContent.put(JsonKey.COMPLETED_COUNT, 1);
-        inputContent.put(JsonKey.PROGRESS, 100);
-        inputContent.put(JsonKey.LAST_COMPLETED_TIME, compareTime(null, inputCompletedDate));
-      } else {
-        inputContent.put(JsonKey.PROGRESS, getInteger(inputContent.get(JsonKey.PROGRESS), 0));
-      }
-      inputContent.put(JsonKey.VIEW_COUNT, 1);
-      inputContent.put(JsonKey.LAST_ACCESS_TIME, compareTime(null, inputAccessTime));
+      inputContent.put(JsonKey.PROGRESS, getInteger(inputContent.get(JsonKey.PROGRESS), 0));
     }
+
+    Date inputAccessTime = parseDate(inputContent.get(JsonKey.LAST_ACCESS_TIME), simpleDateFormat);
+    inputContent.put(JsonKey.LAST_ACCESS_TIME, compareTime(null, inputAccessTime));
     inputContent.put(JsonKey.LAST_UPDATED_TIME, ProjectUtil.getFormattedDate());
     inputContent.put("userId", userId);
+    inputContent.put("status", inputStatus);
     return inputContent;
   }
 
@@ -317,6 +236,12 @@ public class LearnerStateUpdateActor extends BaseActor {
     } else {
       messages.put(key, value);
     }
+  }
+
+  private void updateMessages(Map<String, Object> messages, Map<String, Object> updates) {
+    if (MapUtils.isNotEmpty(updates) && MapUtils.isNotEmpty(messages))
+      for (Map.Entry<String, Object> entry: updates.entrySet())
+        updateMessages(messages, entry.getKey(), entry.getValue());
   }
 
   private int getInteger(Object obj, int defaultValue) {
@@ -384,9 +309,7 @@ public class LearnerStateUpdateActor extends BaseActor {
    * @param contents
    * @throws Exception
    */
-  private void pushInstructionEvent(
-      String userId, String batchId, String courseId, List<Map<String, Object>> contents)
-      throws Exception {
+  private void pushInstructionEvent(String userId, String batchId, String courseId, List<Map<String, Object>> contents) throws Exception {
     Map<String, Object> data = new HashMap<>();
 
     data.put(
