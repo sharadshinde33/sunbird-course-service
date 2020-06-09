@@ -83,6 +83,20 @@ public class LearnerController extends BaseController {
     }
   }
 
+  public CompletionStage<Result> syncEnrollment(Http.Request httpRequest) {
+    try {
+      JsonNode requestData = httpRequest.body().asJson();
+      Request reqObj = (Request) mapper.RequestMapper.mapRequest(requestData, Request.class);
+      // TODO: validate request.
+      reqObj.setOperation("syncEnrollment");
+      reqObj.setRequestId(ExecutionContext.getRequestId());
+      reqObj.setEnv(getEnvironment());
+      return actorResponseHandler(learnerStateUpdateActorRef, reqObj, timeout, null, httpRequest);
+    } catch (Exception e) {
+      return CompletableFuture.completedFuture(createCommonExceptionResponse(e, httpRequest));
+    }
+  }
+
   public Result getHealth() {
     return Results.ok("ok");
   }

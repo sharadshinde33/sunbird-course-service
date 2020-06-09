@@ -61,10 +61,6 @@ public class LearnerStateUpdateActor extends BaseActor {
     ExecutionContext.setRequestId(request.getRequestId());
 
     if (request.getOperation().equalsIgnoreCase(ActorOperations.ADD_CONTENT.getValue())) {
-      ProjectLogger.log(
-              "LearnerStateUpdateActor: onReceive called for operation: "
-                      + request.getOperation(),
-              LoggerEnum.INFO.name());
       String userId = (String) request.getRequest().get(JsonKey.USER_ID);
       List<Map<String, Object>> assessments =
           (List<Map<String, Object>>) request.getRequest().get(JsonKey.ASSESSMENT_EVENTS);
@@ -201,9 +197,20 @@ public class LearnerStateUpdateActor extends BaseActor {
         response.getResult().putAll(respMessages);
         sender().tell(response, self());
       }
+    } else if ("syncEnrollment".equalsIgnoreCase(request.getOperation())) {
+      String batchId = (String) request.get(JsonKey.BATCH_ID);
+      List<String> userIds = (List<String>) request.get(JsonKey.USER_IDs);
+      Response response = syncEnrollment(batchId, userIds);
+      sender().tell(response, self());
     } else {
       onReceiveUnsupportedOperation(request.getOperation());
     }
+  }
+
+  private Response syncEnrollment(String batchId, List<String> userIds) {
+    ProjectLogger.log("Sync Enrollment: " + batchId + " :: " + userIds, LoggerEnum.INFO);
+    Response response = new Response();
+    return response;
   }
 
   private List<Map<String, Object>> getBatches(List<String> batchIds) {

@@ -23,6 +23,7 @@ POST /v1/batch/bulk/unenrollment          @controllers.bulkapimanagement.BulkUpl
 POST     /v1/content/state/read	        @controllers.LearnerController.getContentState(request: play.mvc.Http.Request)
 PATCH    /v1/user/content/state     	@controllers.LearnerController.updateContentState(request: play.mvc.Http.Request)
 PATCH    /v1/content/state/update     	@controllers.LearnerController.updateContentState(request: play.mvc.Http.Request)
+POST    /v1/batch/enrollment/sync       @controllers.LearnerController.syncEnrollment(request: play.mvc.Http.Request)
 
 # Upload Job Management APIs - Check with Krisha  - TODO
 GET  /v1/upload/status/:pid             @controllers.bulkapimanagement.BulkUploadController.getUploadStatus(pid:String, request: play.mvc.Http.Request)
@@ -55,7 +56,7 @@ GET		 /v1/course/batch/read/:batchId			@controllers.coursemanagement.CourseBatch
 POST     /v1/course/batch/search                @controllers.coursemanagement.CourseBatchController.search(request: play.mvc.Http.Request)
 POST	 /v1/course/batch/users/add/:batchId			@controllers.coursemanagement.CourseBatchController.addUserToCourseBatch(batchId:String, request: play.mvc.Http.Request)
 POST	 /v1/course/batch/users/remove/:batchId			@controllers.coursemanagement.CourseBatchController.removeUserFromCourseBatch(batchId:String, request: play.mvc.Http.Request)
-POST		 /v1/batch/participants/list			@controllers.coursemanagement.CourseBatchController.getParticipants(request: play.mvc.Http.Request)
+POST	 /v1/batch/participants/list			@controllers.coursemanagement.CourseBatchController.getParticipants(request: play.mvc.Http.Request)
 
 #metrics APIs for dashboard
 GET  /v1/dashboard/progress/course/:batchId      @controllers.metrics.CourseMetricsController.courseProgress(batchId:String, request: play.mvc.Http.Request)
