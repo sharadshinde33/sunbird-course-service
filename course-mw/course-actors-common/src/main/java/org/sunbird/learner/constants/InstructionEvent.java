@@ -3,6 +3,7 @@ package org.sunbird.learner.constants;
 public enum InstructionEvent {
   BATCH_USER_STATE_UPDATE(
       "Course Batch Updater", "System", "CourseBatchEnrolment", "batch-enrolment-update"),
+  BATCH_USER_STATE_SYNC("Course Batch Updater", "System", "CourseBatchEnrolment","batch-enrolment-sync"),
   ISSUE_COURSE_CERTIFICATE(
       "Course Certificate Generator", "System", "CourseCertificateGeneration", "issue-certificate"),
   COURSE_BATCH_UPDATE(

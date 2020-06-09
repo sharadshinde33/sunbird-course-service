@@ -199,17 +199,56 @@ public class LearnerStateUpdateActor extends BaseActor {
       }
     } else if ("syncEnrollment".equalsIgnoreCase(request.getOperation())) {
       String batchId = (String) request.get(JsonKey.BATCH_ID);
+      String courseId = (String) request.get(JsonKey.COURSE_ID);
       List<String> userIds = (List<String>) request.get(JsonKey.USER_IDs);
-      Response response = syncEnrollment(batchId, userIds);
+      Response response = syncEnrollment(batchId, courseId, userIds);
       sender().tell(response, self());
     } else {
       onReceiveUnsupportedOperation(request.getOperation());
     }
   }
 
-  private Response syncEnrollment(String batchId, List<String> userIds) {
+  private Response syncEnrollment(String batchId, String courseId, List<String> userIds) throws Exception {
     ProjectLogger.log("Sync Enrollment: " + batchId + " :: " + userIds, LoggerEnum.INFO);
+
+    Map<String, Object> data = new HashMap<>();
+    data.put(
+            CourseJsonKey.ACTOR,
+            new HashMap<String, Object>() {
+              {
+                put(JsonKey.ID, InstructionEvent.BATCH_USER_STATE_SYNC.getActorId());
+                put(JsonKey.TYPE, InstructionEvent.BATCH_USER_STATE_SYNC.getActorType());
+              }
+            });
+
+    data.put(
+            CourseJsonKey.OBJECT,
+            new HashMap<String, Object>() {
+              {
+                put(JsonKey.ID, courseId + CourseJsonKey.UNDERSCORE + batchId);
+                put(JsonKey.TYPE, InstructionEvent.BATCH_USER_STATE_SYNC.getType());
+              }
+            });
+
+    String topic = ProjectUtil.getConfigValue("kafka_topics_instruction");
+    for (String userId: userIds) {
+      data.put(
+              CourseJsonKey.E_DATA,
+              new HashMap<String, Object>() {
+                {
+                  put(JsonKey.COURSE_ID, courseId);
+                  put(JsonKey.BATCH_ID, batchId);
+                  put(CourseJsonKey.ACTION, InstructionEvent.BATCH_USER_STATE_SYNC.getAction());
+                  put(CourseJsonKey.ITERATION, 1);
+                  put(JsonKey.USER_ID, userId);
+                }
+              });
+
+      InstructionEventGenerator.pushInstructionEvent(batchId, topic, data);
+    }
     Response response = new Response();
+    response.put(JsonKey.BATCH_ID, batchId);
+    response.put(JsonKey.USER_IDs, userIds);
     return response;
   }
 
