@@ -25,7 +25,8 @@ class GroupAggregatesUtil {
     try{
       val requestUrl = GROUP_SERVICE_API_BASE_URL + groupId + "?fields=members"
       val authToken = request.getContext.get(JsonKey.HEADER).asInstanceOf[Map[String, String]].get(HeaderParam.X_Authenticated_User_Token.getName)
-      ProjectLogger.log("GroupAggregatesActor:getGroupDetails : Token Size: " + StringUtils.length(authToken))
+      ProjectLogger.log("GroupAggregatesActor:getGroupDetails : Token Size: " + StringUtils.length(authToken), LoggerEnum.INFO.name)
+      ProjectLogger.log("GroupAggregatesActor:getGroupDetails : Token: " + authToken, LoggerEnum.INFO.name)
       val headers = new util.HashMap[String, String]() {{
         put(SunbirdKey.CONTENT_TYPE_HEADER, SunbirdKey.APPLICATION_JSON)
         put("x-authenticated-user-token", authToken)
