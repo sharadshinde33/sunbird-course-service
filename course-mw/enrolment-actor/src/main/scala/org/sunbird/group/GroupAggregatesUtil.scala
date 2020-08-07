@@ -29,7 +29,6 @@ class GroupAggregatesUtil {
       ProjectLogger.log("GroupAggregatesActor:getGroupDetails : Token: " + authToken, LoggerEnum.INFO.name)
       val headers = new util.HashMap[String, String]() {{
         put(SunbirdKey.CONTENT_TYPE_HEADER, SunbirdKey.APPLICATION_JSON)
-        put("x-authenticated-user-token", authToken)
       }}
 
       ProjectLogger.log("GroupAggregatesActor:getGroupDetails : Read request group : " + request.get(SunbirdKey.GROUPID), LoggerEnum.INFO.name)
